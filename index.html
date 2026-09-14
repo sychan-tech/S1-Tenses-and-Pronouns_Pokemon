@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PokéVocab: Academic Catcher</title>
+    <!-- MediaPipe Hands and Camera Libraries for Web-based AI Tracking -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js" crossorigin="anonymous"></script>
+    
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Comic Sans MS', 'Chalkboard SE', 'Segoe UI', sans-serif; }
+        body { background: #0f172a; color: white; text-align: center; overflow-x: hidden; }
+        
+        #app-header { margin-top: 15px; }
+        h1 { color: #facc15; text-shadow: 3px 3px 0 #dc2626; font-size: 2.5rem; letter-spacing: 2px; margin-bottom: 5px; }
+        .subtitle { color: #38bdf8; font-size: 1.1rem; font-weight: bold; margin-bottom: 10px; }
+
+        /* Lobby UI */
+        .card { background: #1e293b; max-width: 450px; margin: 20px auto; padding: 25px; border-radius: 16px; border: 3px solid #38bdf8; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        input { width: 85%; padding: 12px; margin: 10px 0; font-size: 1rem; border-radius: 8px; border: 2px solid #38bdf8; background: #0f172a; color: white; text-align: center; }
+        .btn-group { display: flex; gap: 10px; justify-content: center; margin-top: 10px; }
+        button { padding: 12px 20px; font-size: 1rem; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; transition: 0.2s; }
+        .btn-red { background: #ef4444; color: white; }
+        .btn-yellow { background: #eab308; color: black; }
+        button:hover { transform: scale(1.05); }
+        .warning-text { font-size: 0.85rem; color: #ef4444; margin-top: 10px; }
+
+        /* Game Arena */
+        #game-screen { display: none; position: relative; width: 100vw; max-width: 1200px; margin: 0 auto; padding: 0 10px; } 
+        #game-layout { display: flex; gap: 20px; align-items: flex-start; justify-content: center; flex-wrap: wrap; }
+        #game-content { flex-grow: 1; max-width: 900px; width: 100%; }
+        
+        #hud { display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 12px 20px; border-radius: 12px; margin-bottom: 10px; border: 2px solid #facc15; flex-wrap: wrap; gap: 10px; }
+        .hud-item { font-size: 1.1rem; font-weight: bold; }
+        
+        #canvas-container { position: relative; width: 100%; max-width: 900px; aspect-ratio: 8/5; border-radius: 16px; overflow: hidden; border: 4px solid #facc15; background: #000; margin: 0 auto; }
+        
+        /* Hidden video element for MediaPipe feed */
+        video { display: none; }
+        canvas { width: 100%; height: 100%; display: block; }
+
+        #room-info { margin-top: 10px; color: #94a3b8; font-size: 0.9rem; }
+        
+        /* Camera Status Overlay */
+        #camera-status { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 1.2rem; font-weight: bold; background: rgba(0,0,0,0.8); padding: 15px 30px; border-radius: 10px; pointer-events: none; z-index: 10; width: 80%; text-align: center; }
+
+        /* Persistent Leaderboard */
+        #side-leaderboard { background: #1e293b; border: 3px solid #38bdf8; border-radius: 16px; padding: 20px; width: 280px; color: white; text-align: left; }
+        #side-leaderboard h3 { color: #facc15; text-align: center; margin-bottom: 15px; font-size: 1.2rem; }
+        .lb-entry { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 1rem; border-bottom: 1px solid #334155; padding-bottom: 5px; }
+        .lb-entry:last-child { border-bottom: none; }
+        .lb-name { color: #e2e8f0; }
+        .lb-score { color: #4ade80; font-weight: bold; }
+        .lb-current-player { color: #facc15; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="app-header">
+        <h1>POKEVOCAB</h1>
+        <div class="subtitle">HK S1: Tenses & Pronouns</div>
+    </div>
+
+    <!-- LOBBY SCREEN -->
+    <div id="lobby-screen" class="card">
+        <p style="margin-bottom: 12px; color: #cbd5e1;">Stand back, wave your hands left and right to catch the correct answer!</p>
+        <input type="text" id="player-name" placeholder="Enter Student Name" autocomplete="off">
+        <input type="text" id="room-code-input" placeholder="ROOM CODE (TO JOIN)" style="display:none;" autocomplete="off">
+        
+        <div class="btn-group">
+            <button class="btn-red" id="create-btn">Create Room</button>
+            <button class="btn-yellow" id="join-btn">Join Room</button>
+        </div>
+        <div id="lobby-status" style="margin-top: 15px; color: #facc15; font-weight: bold;"></div>
+        <p class="warning-text">Note: Please "Allow" camera permissions when prompted.</p>
+    </div>
+
+    <!-- GAME PLAY SCREEN -->
+    <div id="game-screen">
+        <div id="game-layout">
+            <!-- Left Side: Game Canvas & HUD -->
+            <div id="game-content">
+                <div id="hud">
+                    <div class="hud-item" style="color:#38bdf8;" id="hud-player">Player: -</div>
+                    <div class="hud-item" style="color:#4ade80;" id="hud-saved">Saved: 0/20</div>
+                    <div class="hud-item" style="color:#f43f5e;" id="hud-timer">Time: 0s</div>
+                </div>
+
+                <div id="canvas-container">
+                    <video id="webcam" autoplay playsinline></video>
+                    <canvas id="game-canvas"></canvas>
+                    <div id="camera-status">Initializing AI Camera... <br><span style="font-size:0.9rem; color:#cbd5e1;">(If this takes a while, ensure camera is not blocked)</span></div>
+                </div>
+                <div id="room-info">Room Code: <span id="current-room-tag" style="color:#facc15;">-</span></div>
+            </div>
+
+            <!-- Right Side: Persistent Leaderboard -->
+            <div id="side-leaderboard">
+                <h3>🏆 TOP TRAINERS 🏆</h3>
+                <div id="lb-list">
+                    <!-- Leaderboard entries will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 20 HK S1 SYLLABUS QUESTIONS (10 TENSES, 10 PRONOUNS)
+        const vocabularyData = [
+            // Tenses
+            { prompt: "He ___ to school every day.", options: ["goes", "is going"], correct: ["goes"] },
+            { prompt: "Look! The bus ___.", options: ["is arriving", "arrives"], correct: ["is arriving"] },
+            { prompt: "I ___ a great movie yesterday.", options: ["watched", "watch"], correct: ["watched"] },
+            { prompt: "They ___ dinner at the moment.", options: ["are eating", "eat"], correct: ["are eating"] },
+            { prompt: "We usually ___ basketball on Sundays.", options: ["play", "played"], correct: ["play"] },
+            { prompt: "She ___ her homework last night.", options: ["finished", "finishes"], correct: ["finished"] },
+            { prompt: "Water ___ at 100 degrees Celsius.", options: ["boils", "is boiling"], correct: ["boils"] },
+            { prompt: "Listen! Someone ___ the piano.", options: ["is playing", "plays"], correct: ["is playing"] },
+            { prompt: "My father ___ in a bank.", options: ["works", "is working"], correct: ["works"] },
+            { prompt: "I ___ my keys yesterday.", options: ["lost", "lose"], correct: ["lost"] },
+            // Pronouns
+            { prompt: "This book is mine. Where is ___?", options: ["yours", "your"], correct: ["yours"] },
+            { prompt: "My brother hurt ___ while playing.", options: ["himself", "him"], correct: ["himself"] },
+            { prompt: "Please give the pen to ___.", options: ["me", "I"], correct: ["me"] },
+            { prompt: "Mary and I are friends. ___ study together.", options: ["We", "Us"], correct: ["We"] },
+            { prompt: "That is not her jacket. ___ is blue.", options: ["Hers", "She"], correct: ["Hers"] },
+            { prompt: "Did you make this cake by ___?", options: ["yourself", "you"], correct: ["yourself"] },
+            { prompt: "Let ___ help you with those bags.", options: ["us", "we"], correct: ["us"] },
+            { prompt: "The dog is wagging ___ tail.", options: ["its", "it's"], correct: ["its"] },
+            { prompt: "The teacher asked ___ a question.", options: ["him", "he"], correct: ["him"] },
+            { prompt: "They bought the house for ___.", options: ["themselves", "them"], correct: ["themselves"] }
+        ];
+
+        let leaderboard = [
+            { name: "Chris Wong", time: 45 },
+            { name: "Mary Lee", time: 52 },
+            { name: "Peter Chan", time: 60 },
+            { name: "Kelly Ho", time: 75 },
+            { name: "Tom Ma", time: 85 }
+        ];
+        let scoreRecorded = false;
+        let finalTime = 0;
+
+        let roomCode = "";
+        let playerName = "";
+        let currentQIndex = 0;
+        let savedCount = 0;
+        let startTime = 0;
+        let timerInterval = null;
+
+        // GAME CANVAS & ANIMATION
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        // Define an internal resolution for consistent drawing regardless of screen size
+        const GAME_WIDTH = 800;
+        const GAME_HEIGHT = 500;
+        
+        let catcherX = GAME_WIDTH / 2;
+        let fallingItems = [];
+        let savedPokemonList = [];
+
+        // DOM Elements
+        const playerNameInput = document.getElementById('player-name');
+        const roomCodeInput = document.getElementById('room-code-input');
+        const createBtn = document.getElementById('create-btn');
+        const joinBtn = document.getElementById('join-btn');
+        const lobbyStatus = document.getElementById('lobby-status');
+        const cameraStatus = document.getElementById('camera-status');
+        const videoElement = document.getElementById('webcam');
+
+        createBtn.onclick = () => {
+            playerName = playerNameInput.value.trim() || "Trainer";
+            roomCode = "POKE-" + Math.floor(1000 + Math.random() * 9000);
+            initRoom();
+        };
+
+        joinBtn.onclick = () => {
+            if (roomCodeInput.style.display === "none") {
+                roomCodeInput.style.display = "inline-block";
+                lobbyStatus.innerText = "Enter Room Code and click Join Room again.";
+                return;
+            }
+            playerName = playerNameInput.value.trim() || "Trainer";
+            roomCode = roomCodeInput.value.trim().toUpperCase() || "POKE-1001";
+            initRoom();
+        };
+
+        function initRoom() {
+            document.getElementById('lobby-screen').style.display = 'none';
+            document.getElementById('game-screen').style.display = 'block';
+            document.getElementById('hud-player').innerText = `Player: ${playerName}`;
+            document.getElementById('current-room-tag').innerText = roomCode;
+
+            updateSideLeaderboard();
+            startCameraAndGame();
+        }
+
+        function updateSideLeaderboard() {
+            const lbList = document.getElementById('lb-list');
+            lbList.innerHTML = '';
+            
+            let sortedLb = [...leaderboard].sort((a, b) => a.time - b.time);
+            
+            let htmlContent = '';
+            sortedLb.slice(0, 5).forEach((entry, idx) => {
+                const isCurrentPlayer = entry.name === playerName && scoreRecorded;
+                const nameClass = isCurrentPlayer ? "lb-current-player" : "lb-name";
+                htmlContent += `<div class="lb-entry ${isCurrentPlayer ? 'lb-current-player' : ''}"><span class="${nameClass}">${idx + 1}. ${entry.name}</span><span class="lb-score">${entry.time}s</span></div>`;
+            });
+            
+            if (!scoreRecorded) {
+                htmlContent += `<div class="lb-entry lb-current-player" style="margin-top: 15px; border-top: 2px dashed #334155; padding-top: 10px;"><span class="lb-name">${playerName} (You)</span><span class="lb-score">...</span></div>`;
+            }
+
+            lbList.innerHTML = htmlContent;
+        }
+
+        function getRandomPokemonImage() {
+            const img = new Image();
+            // Random ID between 1 and 151 (Gen 1)
+            const randomId = Math.floor(Math.random() * 151) + 1;
+            // Direct raw github URL to bypass API rate limits
+            img.src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${randomId}.png`;
+            
+            // Fallback if the image fails to load or 404s
+            img.onerror = function() {
+                this.src = `https://placehold.co/100x100/facc15/000000?text=PKMN+${randomId}`;
+            };
+            
+            return img;
+        }
+
+        function startCameraAndGame() {
+            canvas.width = GAME_WIDTH;
+            canvas.height = GAME_HEIGHT;
+
+            const hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 1, // Track 1 hand
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            hands.onResults((results) => {
+                cameraStatus.style.display = 'none';
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const handX = results.multiHandLandmarks[0][0].x; // Wrist coordinate
+                    // Invert X because camera is mirrored
+                    catcherX = (1 - handX) * GAME_WIDTH;
+                }
+            });
+
+            const camera = new Camera(videoElement, {
+                onFrame: async () => { 
+                    await hands.send({ image: videoElement }); 
+                },
+                width: 640,
+                height: 480
+            });
+
+            camera.start().catch((err) => {
+                console.error("Camera Error:", err);
+                cameraStatus.innerHTML = `Camera access denied or failed.<br><span style="font-size:0.9rem;">Make sure you are on a secure connection and allowed permissions.</span>`;
+            });
+
+            startTime = Date.now();
+            scoreRecorded = false;
+            timerInterval = setInterval(updateTimer, 1000);
+            spawnQuestion(currentQIndex);
+            requestAnimationFrame(gameLoop);
+        }
+
+        function updateTimer() {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            document.getElementById('hud-timer').innerText = `Time: ${elapsed}s`;
+        }
+
+        function spawnQuestion(index) {
+            if (index >= vocabularyData.length) return;
+            const q = vocabularyData[index];
+            
+            const isFirstCorrect = Math.random() > 0.5;
+            const leftWord = isFirstCorrect ? q.options[0] : q.options[1];
+            const rightWord = isFirstCorrect ? q.options[1] : q.options[0];
+
+            fallingItems = [
+                { 
+                    text: leftWord, 
+                    x: GAME_WIDTH * 0.3, // 30% from left
+                    y: -50, 
+                    speed: 2.5, 
+                    isCorrect: q.correct.includes(leftWord),
+                    img: getRandomPokemonImage()
+                },
+                { 
+                    text: rightWord, 
+                    x: GAME_WIDTH * 0.7, // 70% from left
+                    y: -50, 
+                    speed: 2.5, 
+                    isCorrect: q.correct.includes(rightWord),
+                    img: getRandomPokemonImage()
+                }
+            ];
+        }
+
+        function gameLoop() {
+            // 1. Draw Mirrored Webcam Background
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.drawImage(videoElement, -GAME_WIDTH, 0, GAME_WIDTH, GAME_HEIGHT);
+            ctx.restore();
+
+            // Dark tint for contrast
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+            // 2. Draw Lawn Area at the bottom
+            const lawnHeight = 90;
+            ctx.fillStyle = '#22c55e'; // Green grass
+            ctx.fillRect(0, GAME_HEIGHT - lawnHeight, GAME_WIDTH, lawnHeight);
+            ctx.fillStyle = '#166534'; // Dark grass trim
+            ctx.fillRect(0, GAME_HEIGHT - lawnHeight, GAME_WIDTH, 12);
+
+            // 3. Draw Rescued Pokemon on the Lawn (Larger Sprites)
+            savedPokemonList.forEach((pokeObj, idx) => {
+                const row = Math.floor(idx / 10);
+                const col = idx % 10;
+                // Distribute evenly across the screen width
+                const xSpacing = GAME_WIDTH / 10; 
+                const pokeX = (col * xSpacing) + (xSpacing / 2);
+                const pokeY = GAME_HEIGHT - lawnHeight + 10 + (row * 30);
+                
+                if (pokeObj.img.complete) {
+                    // Draw at 70x70 size for better visibility
+                    ctx.drawImage(pokeObj.img, pokeX - 35, pokeY - 25, 70, 70);
+                }
+            });
+
+            // 4. Render Active Game State
+            if (currentQIndex < vocabularyData.length) {
+                const q = vocabularyData[currentQIndex];
+                
+                // Centered Question Banner
+                const bannerWidth = 640;
+                const bannerHeight = 50;
+                const bannerX = (GAME_WIDTH - bannerWidth) / 2;
+                
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+                ctx.beginPath();
+                ctx.roundRect(bannerX, 20, bannerWidth, bannerHeight, 12);
+                ctx.fill();
+                ctx.strokeStyle = '#facc15';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 24px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(`Word for: "${q.prompt.toUpperCase()}"`, GAME_WIDTH / 2, 20 + (bannerHeight / 2));
+
+                // Falling Pokemon Logic
+                fallingItems.forEach(item => {
+                    item.y += item.speed;
+
+                    if (item.img.complete) {
+                        // Colored glow based on correctness (hints)
+                        ctx.fillStyle = item.isCorrect ? 'rgba(74, 222, 128, 0.4)' : 'rgba(239, 68, 68, 0.4)';
+                        ctx.beginPath();
+                        ctx.arc(item.x, item.y, 45, 0, Math.PI * 2);
+                        ctx.fill();
+                        
+                        // Draw sprite
+                        ctx.drawImage(item.img, item.x - 50, item.y - 50, 100, 100);
+                    }
+
+                    // Word label under the sprite
+                    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+                    ctx.beginPath();
+                    ctx.roundRect(item.x - 60, item.y + 45, 120, 30, 6);
+                    ctx.fill();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 18px sans-serif';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(item.text, item.x, item.y + 60);
+
+                    // Catcher is at GAME_HEIGHT - 80
+                    if (item.y >= GAME_HEIGHT - 130 && item.y <= GAME_HEIGHT - 50 && Math.abs(item.x - catcherX) < 70) {
+                        if (item.isCorrect) {
+                            savedCount++;
+                            savedPokemonList.push({ img: item.img });
+                            document.getElementById('hud-saved').innerText = `Saved: ${savedCount}/20`;
+                            
+                            currentQIndex++;
+                            if (currentQIndex < vocabularyData.length) {
+                                spawnQuestion(currentQIndex);
+                            }
+                        } else {
+                            item.y = -100; // Reset incorrect item to top
+                        }
+                    } else if (item.y > GAME_HEIGHT + 50) {
+                        item.y = -100; // Reset if it hits ground
+                    }
+                });
+            } else {
+                clearInterval(timerInterval);
+                
+                if (!scoreRecorded) {
+                    finalTime = Math.floor((Date.now() - startTime) / 1000);
+                    leaderboard.push({ name: playerName, time: finalTime });
+                    scoreRecorded = true;
+                    updateSideLeaderboard();
+                }
+
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+                ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+                ctx.fillStyle = '#facc15';
+                ctx.font = 'bold 42px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('ALL 20 POKÉMON CAUGHT!', GAME_WIDTH / 2, 120);
+                
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 28px sans-serif';
+                ctx.fillText(`Amazing effort, ${playerName}!`, GAME_WIDTH / 2, 180);
+                ctx.fillText(`Final Time: ${finalTime}s`, GAME_WIDTH / 2, 220);
+                
+                // Draw celebration pile of saved Pokemon
+                savedPokemonList.forEach((pokeObj, idx) => {
+                    const row = Math.floor(idx / 10);
+                    const col = idx % 10;
+                    if (pokeObj.img.complete) {
+                        ctx.drawImage(pokeObj.img, (GAME_WIDTH/2 - 350) + (col * 70), 300 + (row * 60), 80, 80);
+                    }
+                });
+            }
+
+            // Draw Bottom Half (White)
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(catcherX, GAME_HEIGHT - 80, 55, 0, Math.PI, false); // Bottom half arch
+            ctx.fill();
+
+            // Draw Top Half (Red)
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(catcherX - 60, GAME_HEIGHT - 135, 120, 55); // Clipping box for top half
+            ctx.clip();
+            ctx.fillStyle = '#dc2626';
+            ctx.beginPath();
+            ctx.arc(catcherX, GAME_HEIGHT - 80, 55, 0, Math.PI * 2, false);
+            ctx.fill();
+            ctx.restore();
+            
+            // Outer Rim
+            ctx.lineWidth = 6;
+            ctx.strokeStyle = '#1e293b'; 
+            ctx.beginPath();
+            ctx.arc(catcherX, GAME_HEIGHT - 80, 55, 0, Math.PI, false);
+            ctx.stroke();
+
+            // Middle Band (Black line connecting the top and bottom of the arch)
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(catcherX - 55, GAME_HEIGHT - 83, 110, 6);
+
+            // Center Button Outer (White)
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(catcherX, GAME_HEIGHT - 80, 16, 0, Math.PI * 2, false);
+            ctx.fill();
+            ctx.lineWidth = 5;
+            ctx.strokeStyle = '#1e293b';
+            ctx.stroke();
+
+            // Center Button Inner (White inner dot)
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(catcherX, GAME_HEIGHT - 80, 6, 0, Math.PI * 2, false);
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#94a3b8'; // subtle grey inner outline
+            ctx.stroke();
+
+            requestAnimationFrame(gameLoop);
+        }
+    </script>
+</body>
+</html>
